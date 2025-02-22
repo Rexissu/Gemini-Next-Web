@@ -1,1 +1,20 @@
+@layer components {
+  .drawer-transition {
+    @apply transition-transform duration-300 ease-in-out;
+  }
 
+  .floating-button {
+    @apply shadow-lg hover:shadow-xl transition-shadow;
+  }
+}
+
+/* 移动端优化 */
+@media (max-width: 767px) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
