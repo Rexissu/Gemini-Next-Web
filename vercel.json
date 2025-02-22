@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "src": "/live",
+      "dest": "/live",
+      "headers": {
+        "Cache-Control": "public, max-age=3600",
+        "Vary": "User-Agent"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/404"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/live",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i)mobile"
+        }
+      ],
+      "destination": "/live?platform=mobile"
+    }
+  ]
+}
