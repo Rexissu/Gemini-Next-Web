@@ -1,39 +1,27 @@
-import type { Metadata } from 'next';
-import localFont from 'next/font/local';
-import './globals.css';
-import { AntdRegistry } from '@ant-design/nextjs-registry';
-import GlobalLayout from '@/components/global-layout';
+import './globals.css'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import InterfaceProvider from '@/components/providers/InterfaceProvider'
 
-const geistSans = localFont({
-	src: './fonts/GeistVF.woff',
-	variable: '--font-geist-sans',
-	weight: '100 900',
-});
-const geistMono = localFont({
-	src: './fonts/GeistMonoVF.woff',
-	variable: '--font-geist-mono',
-	weight: '100 900',
-});
+const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-	title: 'Gemini 2',
-	description: '',
-};
+  title: 'Gemini Stream',
+  description: 'Real-time Streaming Interface',
+}
 
 export default function RootLayout({
-	children,
-}: Readonly<{
-	children: React.ReactNode;
-}>) {
-	return (
-		<html lang='en'>
-			<body
-				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-			>
-				<AntdRegistry>
-					<GlobalLayout>{children}</GlobalLayout>
-				</AntdRegistry>
-			</body>
-		</html>
-	);
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en" className="h-full">
+      <body className={`${inter.className} h-full`}>
+        <InterfaceProvider>
+          {children}
+        </InterfaceProvider>
+      </body>
+    </html>
+  )
 }
