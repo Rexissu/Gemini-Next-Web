@@ -14,212 +14,234 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {
-  MultimodalLiveAPIClientConnection,
-  MultimodalLiveClient,
+    MultimodalLiveAPIClientConnection,
+    MultimodalLiveClient,
 } from "../lib/multimodal-live-client";
-import { LiveConfig, LiveOutgoingMessage, ServerContentMessage, RealtimeInputMessage, ClientContentMessage, ModelTurn, ServerContent } from "../multimodal-live-types";
-import { AudioStreamer } from "../lib/audio-streamer";
-import { audioContext } from "../lib/utils";
+import {
+    LiveConfig,
+    LiveOutgoingMessage,
+    ServerContentMessage,
+    RealtimeInputMessage,
+    ClientContentMessage,
+    ModelTurn,
+    ServerContent
+} from "../multimodal-live-types";
+import {AudioStreamer} from "../lib/audio-streamer";
+import {audioContext} from "../lib/utils";
 import VolMeterWorket from "../lib/worklets/vol-meter";
-import { GenerativeContentBlob, Part } from "@google/generative-ai";
-import { nanoid } from 'nanoid'
+import {GenerativeContentBlob, Part} from "@google/generative-ai";
+import {nanoid} from 'nanoid'
 
 
 export type UseLiveAPIResults = {
-  client: MultimodalLiveClient;
-  setConfig: (config: LiveConfig) => void;
-  config: LiveConfig;
-  connected: boolean;
-  connect: () => Promise<void>;
-  disconnect: () => Promise<void>;
-  volume: number;
-  currentUserMessage: RealtimeInputMessage | ClientContentMessage | null;
-  currentBotMessage: ServerContentMessage | null;
+    client: MultimodalLiveClient;
+    setConfig: (config: LiveConfig) => void;
+    config: LiveConfig;
+    connected: boolean;
+    connect: () => Promise<void>;
+    disconnect: () => Promise<void>;
+    volume: number;
+    currentUserMessage: RealtimeInputMessage | ClientContentMessage | null;
+    currentBotMessage: ServerContentMessage | null;
 };
 
 export function useLiveAPI({
-  url,
-  apiKey,
-}: MultimodalLiveAPIClientConnection): UseLiveAPIResults {
-  const client = useMemo(
-    () => new MultimodalLiveClient({ url, apiKey }),
-    [url, apiKey],
-  );
-  const audioStreamerRef = useRef<AudioStreamer | null>(null);
+                               url,
+                               apiKey,
+                           }: MultimodalLiveAPIClientConnection): UseLiveAPIResults {
+    const client = useMemo(
+        () => new MultimodalLiveClient({url, apiKey}),
+        [url, apiKey],
+    );
+    const audioStreamerRef = useRef<AudioStreamer | null>(null);
 
-  const [connected, setConnected] = useState(false);
-  const [config, setConfig] = useState<LiveConfig>({
-    model: "models/gemini-2.0-flash-exp",
-  });
-  const [volume, setVolume] = useState(0);
-  // current message
-  const [currentUserMessage, setCurrentUserMessage] = useState<RealtimeInputMessage | ClientContentMessage | null>(null);
-  const [currentBotMessage, setCurrentBotMessage] = useState<ServerContentMessage | null>(null);
-  // 服务端返回的语音，一方面直接播放，另一方面需要保存起来，结束的时候，生成一个播放地址
-  const botAudioParts = useRef<Part[]>([]);
-  const botContentParts = useRef<Part[]>([]);
-  // 用户输入的语音/图片需要保存起来，结束的时候生成语音/视频？
-  const mediaChunks = useRef<GenerativeContentBlob[]>([]);
+    const [connected, setConnected] = useState(false);
+    const [config, setConfig] = useState<LiveConfig>({
+        model: "models/gemini-2.0-flash-exp",
+    });
+    const [volume, setVolume] = useState(0);
+    // current message
+    const [currentUserMessage, setCurrentUserMessage] = useState<RealtimeInputMessage | ClientContentMessage | null>(null);
+    const [currentBotMessage, setCurrentBotMessage] = useState<ServerContentMessage | null>(null);
+    // 服务端返回的语音，一方面直接播放，另一方面需要保存起来，结束的时候，生成一个播放地址
+    const botAudioParts = useRef<Part[]>([]);
+    const botContentParts = useRef<Part[]>([]);
+    // 用户输入的语音/图片需要保存起来，结束的时候生成语音/视频？
+    const mediaChunks = useRef<GenerativeContentBlob[]>([]);
 
-  // register audio for streaming server -> speakers
-  useEffect(() => {
-    if (!audioStreamerRef.current) {
-      audioContext({ id: "audio-out" }).then((audioCtx: AudioContext) => {
-        audioStreamerRef.current = new AudioStreamer(audioCtx);
-        audioStreamerRef.current
-          .addWorklet<any>("vumeter-out", VolMeterWorket, (ev: any) => {
-            setVolume(ev.data.volume);
-          })
-          .then(() => {
-            // Successfully added worklet
-          });
-      });
-    }
-  }, [audioStreamerRef]);
+    // register audio for streaming server -> speakers
+    useEffect(() => {
+        if (!audioStreamerRef.current) {
+            audioContext({id: "audio-out"}).then((audioCtx: AudioContext) => {
+                audioStreamerRef.current = new AudioStreamer(audioCtx);
+                audioStreamerRef.current
+                    ?.addWorklet<any>("vumeter-out", VolMeterWorket, (ev: any) => {
+                        setVolume(ev.data.volume);
+                    })
+                    .then(() => {
+                        // Successfully added worklet
+                    });
+            });
+        }
+    }, [audioStreamerRef]);
 
-  useEffect(() => {
-    const onClose = () => {
-      setConnected(false);
-    };
+    useEffect(() => {
+        const onClose = () => {
+            setConnected(false);
+        };
 
-    const stopAudioStreamer = () => audioStreamerRef.current?.stop();
+        const stopAudioStreamer = () => audioStreamerRef.current?.stop();
 
-    const onAudio = (data: ArrayBuffer) =>
-      audioStreamerRef.current?.addPCM16(new Uint8Array(data));
+        const onAudio = (data: ArrayBuffer) =>
+            audioStreamerRef.current?.addPCM16(new Uint8Array(data));
 
-    client
-      .on("close", onClose)
-      .on("interrupted", stopAudioStreamer)
-      .on("audio", onAudio);
+        client
+            .on("close", onClose)
+            .on("interrupted", stopAudioStreamer)
+            .on("audio", onAudio);
 
-    return () => {
-      client
-        .off("close", onClose)
-        .off("interrupted", stopAudioStreamer)
-        .off("audio", onAudio);
-    };
-  }, [client]);
+        return () => {
+            client
+                .off("close", onClose)
+                .off("interrupted", stopAudioStreamer)
+                .off("audio", onAudio);
+        };
+    }, [client]);
 
-  useEffect(() => {
-    let currnetBotMessageId: string = nanoid()
-    let currnetUserMessageId: string = nanoid()
-    // const onAudio = (data: ArrayBuffer) => {
-    //   // 保存结果到botAudioBuffers
-    //   botAudioBuffers.current?.push(data)
-    // }
-    const onAudioContent = (data: ModelTurn['modelTurn']['parts']) => {
-      // 保存结果到botAudioParts
-      botAudioParts.current = [...botAudioParts.current, ...data]
-    }
-    const onInput = (data: RealtimeInputMessage | ClientContentMessage) => {
-      if ((data as RealtimeInputMessage)?.realtimeInput?.mediaChunks) {
-        mediaChunks.current?.push(...(data as RealtimeInputMessage)?.realtimeInput?.mediaChunks)
-      }
-      if ((data as ClientContentMessage)?.clientContent) {
-        // 用户输入了就会有一个turnComplete，立即结束
-        setCurrentUserMessage({
-          ...data,
-          id: currnetUserMessageId,
-          // 先不处理输入的语音消息
-          // realtimeInput: {
-          //   mediaChunks: mediaChunks?.current ?? [],
-          // }
-        })
-        currnetUserMessageId = nanoid()  // 生成一个新的id
-        mediaChunks.current = []  // 清空mediaChunks
-      }
-    }
-    const onContent = (content: ModelTurn) => {
-      // 文本输出，将文本放到bot message里面
-      if (content.modelTurn?.parts) {
-        botContentParts.current.push(...content.modelTurn?.parts)  
-        // 这里需要先设置文本消息，支持实时的打字机效果
-        setCurrentBotMessage({
-          serverContent: {
-            modelTurn: {
-              // 这里只有文本消息，语音消息只在最后收到turncomplete的时候再一次性发过去
-              parts: botContentParts.current,
+    useEffect(() => {
+        let currnetBotMessageId: string = nanoid()
+        let currnetUserMessageId: string = nanoid()
+        // const onAudio = (data: ArrayBuffer) => {
+        //   // 保存结果到botAudioBuffers
+        //   botAudioBuffers.current?.push(data)
+        // }
+        const onAudioContent = (data: ModelTurn['modelTurn']['parts']) => {
+            // 保存结果到botAudioParts
+            botAudioParts.current = [...botAudioParts.current, ...data]
+        }
+        const onInput = (data: RealtimeInputMessage | ClientContentMessage) => {
+            // 用户语音输入时，会不断监听input事件，这里收集起来放到mediaChunks中。
+            if ((data as RealtimeInputMessage)?.realtimeInput?.mediaChunks) {
+                mediaChunks.current?.push(...(data as RealtimeInputMessage)?.realtimeInput?.mediaChunks)
             }
-          },
-          id: currnetBotMessageId,
-        })
-      }
-		}
-		const onInterrupted = () => {
-			// 这个事件应该表示的是，机器人的语音消息被打断？实际上应该算用户语音输入开始
-			console.log('onInterrupted')
-			// if (buffers.length) {
-			// 	new Blob(buffers).arrayBuffer().then((buffer: ArrayBuffer) => {
-			// 		const blob = pcmBufferToBlob(buffer);
-			// 		const audioUrl = URL.createObjectURL(blob);
-			// 		const message = { audioUrl }
-			// 		setMessages((state: any) => {
-			// 			console.log('new message', state, message)
-			// 			return [...state, message]
-			// 		})
-			// 	})
-			// }
-		}
-		const onTurnComplete = () => {
-			// 这个事件表示机器人生成的消息结束了，不管是文本结束还是语音结束，都有这个消息
-			console.log('onTurnComplete')
-			if (botContentParts.current?.length || botAudioParts.current?.length) {
-        setCurrentBotMessage({
-          serverContent: {
-            modelTurn: {
-              // 文本消息加上语音消息
-              parts: [...botContentParts.current, ...botAudioParts.current],
+            if ((data as ClientContentMessage)?.clientContent) {
+                // 用户输入了就会有一个turnComplete，立即结束
+                setCurrentUserMessage({
+                    ...data,
+                    id: currnetUserMessageId,
+                    // 先不处理输入的语音消息
+                    // realtimeInput: {
+                    //   mediaChunks: mediaChunks?.current ?? [],
+                    // }
+                } as ClientContentMessage)
+                currnetUserMessageId = nanoid()  // 生成一个新的id
+                mediaChunks.current = []  // 清空mediaChunks
             }
-          },
-          id: currnetBotMessageId,
-        })
-        currnetBotMessageId = nanoid()
-        botContentParts.current = []; // 清空数据
-        botAudioParts.current = [];
-			}
-		}
-    client
-      .on('interrupted', onInterrupted)
-      .on('turncomplete', onTurnComplete)
-      .on('content', onContent)
-      .on('input', onInput)
-      .on('audiocontent', onAudioContent);
-    return () => {
-      client
-        .off('interrupted', onInterrupted)
-        .off('turncomplete', onTurnComplete)
-        .off('content', onContent)
-        .off('input', onInput)
-        .off('audiocontent', onAudioContent);
-    }
-  }, [client])
+        }
+        const onContent = (content: ModelTurn) => {
+            // 文本输出，将文本放到bot message里面
+            if (content.modelTurn?.parts) {
+                botContentParts.current.push(...content.modelTurn?.parts)
+                // 这里需要先设置文本消息，支持实时的打字机效果
+                setCurrentBotMessage({
+                    serverContent: {
+                        modelTurn: {
+                            // 这里只有文本消息，语音消息只在最后收到turncomplete的时候再一次性发过去
+                            parts: botContentParts.current,
+                        }
+                    },
+                    id: currnetBotMessageId,
+                })
+            }
+        }
+        const onInterrupted = () => {
+            // 这个事件应该表示的是，机器人的语音消息被打断？实际上应该算用户语音输入开始
+            console.log('onInterrupted')
+            // if (buffers.length) {
+            // 	new Blob(buffers).arrayBuffer().then((buffer: ArrayBuffer) => {
+            // 		const blob = pcmBufferToBlob(buffer);
+            // 		const audioUrl = URL.createObjectURL(blob);
+            // 		const message = { audioUrl }
+            // 		setMessages((state: any) => {
+            // 			console.log('new message', state, message)
+            // 			return [...state, message]
+            // 		})
+            // 	})
+            // }
+        }
+        const onTurnComplete = () => {
+            // 这个事件表示机器人生成的消息结束了，不管是文本结束还是语音结束，都有这个消息
+            console.log('onTurnComplete1')
+            if (mediaChunks?.current && mediaChunks?.current.length > 0) {
+                setCurrentUserMessage({
+                    id: currnetUserMessageId,
+                    realtimeInput: {
+                        mediaChunks: mediaChunks?.current ?? [],
+                    }
+                });
+                currnetUserMessageId = nanoid()  // 生成一个新的id
+                mediaChunks.current = []
+            }
 
-  const connect = useCallback(async () => {
-    console.log(config);
-    if (!config) {
-      throw new Error("config has not been set");
-    }
-    client.disconnect();
-    await client.connect(config);
-    setConnected(true);
-  }, [client, setConnected, config]);
+            console.log('onTurnComplete2')
+            if (botContentParts.current?.length || botAudioParts.current?.length) {
+                setCurrentBotMessage({
+                    serverContent: {
+                        modelTurn: {
+                            // 文本消息加上语音消息
+                            parts: [...botContentParts.current, ...botAudioParts.current],
+                        }
+                    },
+                    id: currnetBotMessageId,
+                })
+                currnetBotMessageId = nanoid()
+                botContentParts.current = []; // 清空数据
+                botAudioParts.current = [];
+            }
 
-  const disconnect = useCallback(async () => {
-    client.disconnect();
-    setConnected(false);
-  }, [setConnected, client]);
+        }
+        client
+            .on('interrupted', onInterrupted)
+            .on('turncomplete', onTurnComplete)
+            .on('content', onContent)
+            .on('input', onInput)
+            .on('audiocontent', onAudioContent);
+        return () => {
+            client
+                .off('interrupted', onInterrupted)
+                .off('turncomplete', onTurnComplete)
+                .off('content', onContent)
+                .off('input', onInput)
+                .off('audiocontent', onAudioContent);
+        }
+    }, [client])
 
-  return {
-    client,
-    config,
-    setConfig,
-    connected,
-    connect,
-    disconnect,
-    volume,
-    currentUserMessage,
-    currentBotMessage,
-  };
+    const connect = useCallback(async () => {
+        console.log(config);
+        if (!config) {
+            throw new Error("config has not been set");
+        }
+        client.disconnect();
+        await client.connect(config);
+        setConnected(true);
+    }, [client, setConnected, config]);
+
+    const disconnect = useCallback(async () => {
+        client.disconnect();
+        setConnected(false);
+    }, [setConnected, client]);
+
+    return {
+        client,
+        config,
+        setConfig,
+        connected,
+        connect,
+        disconnect,
+        volume,
+        currentUserMessage,
+        currentBotMessage,
+    };
 }
